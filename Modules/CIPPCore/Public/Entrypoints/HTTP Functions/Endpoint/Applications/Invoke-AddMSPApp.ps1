@@ -1,9 +1,7 @@
-using namespace System.Net
-
-Function Invoke-AddMSPApp {
+function Invoke-AddMSPApp {
     <#
     .FUNCTIONALITY
-        Entrypoint
+        Entrypoint,AnyTenant
     .ROLE
         Endpoint.Application.ReadWrite
     #>
@@ -12,14 +10,15 @@ Function Invoke-AddMSPApp {
 
     $APIName = $Request.Params.CIPPEndpoint
     $Headers = $Request.Headers
-    Write-LogMessage -headers $Headers -API $APIName -message 'Accessed this API' -Sev 'Debug'
+
 
     $RMMApp = $Request.Body
-    $AssignTo = $Request.Body.AssignTo
+    $AssignTo = $Request.Body.AssignTo -eq 'customGroup' ? $Request.Body.CustomGroup : $Request.Body.AssignTo
     $intuneBody = Get-Content "AddMSPApp\$($RMMApp.RMMName.value).app.json" | ConvertFrom-Json
     $intuneBody.displayName = $RMMApp.DisplayName
 
-    $Tenants = $Request.Body.selectedTenants
+    $AllowedTenants = Test-CIPPAccess -Request $Request -TenantList
+    $Tenants = $Request.Body.selectedTenants | Where-Object { $AllowedTenants -contains $_.customerId -or $AllowedTenants -contains 'AllTenants' }
     $Results = foreach ($Tenant in $Tenants) {
         $InstallParams = [PSCustomObject]$RMMApp.params
         switch ($RMMApp.RMMName.value) {
@@ -36,10 +35,6 @@ Function Invoke-AddMSPApp {
             'Huntress' {
                 $installCommandLine = "powershell.exe -ExecutionPolicy Bypass .\install.ps1 -OrgKey $($InstallParams.Orgkey."$($Tenant.customerId)") -acctkey $($InstallParams.AccountKey)"
                 $uninstallCommandLine = 'powershell.exe -ExecutionPolicy Bypass .\install.ps1 -Uninstall'
-            }
-            'Immybot' {
-                $installCommandLine = "powershell.exe -ExecutionPolicy Bypass .\install.ps1 -url $($InstallParams.ClientURL."$($tenant.customerId)")"
-                $UninstallCommandLine = 'powershell.exe -ExecutionPolicy Bypass .\uninstall.ps1'
             }
             'syncro' {
                 $installCommandLine = "powershell.exe -ExecutionPolicy Bypass .\install.ps1 -URL $($InstallParams.ClientURL."$($Tenant.customerId)")"
@@ -91,8 +86,7 @@ Function Invoke-AddMSPApp {
 
 
     $body = [PSCustomObject]@{'Results' = $Results }
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = $body
         })
