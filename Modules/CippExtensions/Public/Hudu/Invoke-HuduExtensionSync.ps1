@@ -33,8 +33,7 @@ function Invoke-HuduExtensionSync {
         $HuduAssetCache = Get-CippTable -tablename 'CacheHuduAssets'
 
         # Import license mapping
-        Set-Location (Get-Item $PSScriptRoot).Parent.Parent.Parent.Parent.FullName
-        $LicTable = Import-Csv ConversionTable.csv
+        $LicTable = [System.IO.File]::ReadAllText((Join-Path $env:CIPPRootPath 'Config\ConversionTable.csv')) | ConvertFrom-Csv
 
         $CompanyResult.Logs.Add('Starting Hudu Extension Sync')
 
@@ -67,7 +66,7 @@ function Invoke-HuduExtensionSync {
                 $PeopleLayout = Get-HuduAssetLayouts -Id $PeopleLayoutId
                 if ($PeopleLayout.id) {
                     $PeopleArray = Get-HuduAssets -CompanyId $company_id -AssetLayoutId $PeopleLayout.id
-                    $People = [System.Collections.Generic.List[object]]::new($PeopleArray)
+                    $People = [System.Collections.Generic.List[object]]::new([object[]]@($PeopleArray))
                 } else {
                     $CreateUsers = $false
                     $People = [System.Collections.Generic.List[object]]::new()
@@ -92,7 +91,7 @@ function Invoke-HuduExtensionSync {
                 $DesktopsLayout = Get-HuduAssetLayouts -Id $DeviceLayoutId
                 if ($DesktopsLayout.id) {
                     $HuduDesktopDevices = Get-HuduAssets -CompanyId $company_id -AssetLayoutId $DesktopsLayout.id
-                    $HuduDevices = [System.Collections.Generic.List[object]]::new($HuduDesktopDevices)
+                    $HuduDevices = [System.Collections.Generic.List[object]]::new([object[]]@($HuduDesktopDevices))
                 } else {
                     $CreateDevices = $false
                     $HuduDevices = [System.Collections.Generic.List[object]]::new()
@@ -246,7 +245,7 @@ function Invoke-HuduExtensionSync {
 
             $post = '</div>'
 
-            $licenseOut = $Licenses | Where-Object { $_.PrepaidUnits.Enabled -gt 0 } | Select-Object @{N = 'License Name'; E = { Convert-SKUname -skuName $_.SkuPartNumber -ConvertTable $LicTable } }, @{N = 'Active'; E = { $_.PrepaidUnits.Enabled } }, @{N = 'Consumed'; E = { $_.ConsumedUnits } }, @{N = 'Unused'; E = { $_.PrepaidUnits.Enabled - $_.ConsumedUnits } }
+            $licenseOut = $Licenses | Where-Object { $_.PrepaidUnits.Enabled -gt 0 } | Select-Object @{N = 'License Name'; E = { $_.SkuPartNumber } }, @{N = 'Active'; E = { $_.PrepaidUnits.Enabled } }, @{N = 'Consumed'; E = { $_.ConsumedUnits } }, @{N = 'Unused'; E = { $_.PrepaidUnits.Enabled - $_.ConsumedUnits } }
             $licenseHTML = $licenseOut | ConvertTo-Html -PreContent $pre -PostContent $post -Fragment | Out-String
         }
 
@@ -519,11 +518,10 @@ function Invoke-HuduExtensionSync {
                     $userLicenses = ($user.AssignedLicenses.SkuID | ForEach-Object {
                             $UserLic = $_
                             $SkuPartNumber = ($Licenses | Where-Object { $_.SkuId -eq $UserLic }).SkuPartNumber
-                            $DisplayName = Convert-SKUname -skuName $SkuPartNumber -ConvertTable $LicTable
-                            if (!$DisplayName) {
-                                $DisplayName = $SkuPartNumber
+                            if (!$SkuPartNumber) {
+                                $SkuPartNumber = 'Unknown License'
                             }
-                            $DisplayName
+                            $SkuPartNumber
                         }) -join ', '
 
                     $UserOneDriveDetails = $OneDriveDetails | Where-Object { $_.ownerPrincipalName -eq $user.userPrincipalName }

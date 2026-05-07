@@ -8,6 +8,8 @@ function Get-CIPPReusableSettingsFromPolicy {
 
     $result = [pscustomobject]@{
         ReusableSettings = [System.Collections.Generic.List[psobject]]::new()
+        RawJSON          = $PolicyJson
+        Map              = @{}
     }
 
     if (-not $PolicyJson) { return $result }
@@ -15,7 +17,7 @@ function Get-CIPPReusableSettingsFromPolicy {
     try {
         $policyObject = $PolicyJson | ConvertFrom-Json -Depth 300 -ErrorAction Stop
     } catch {
-        Write-LogMessage -headers $Headers -API $APIName -message "Reusable settings discovery failed: policy JSON invalid ($($_.Exception.Message))" -Sev 'Warn'
+        Write-LogMessage -headers $Headers -API $APIName -message "Reusable settings discovery failed: policy JSON invalid ($($_.Exception.Message))" -Sev 'Warning'
         return $result
     }
 
@@ -99,7 +101,7 @@ function Get-CIPPReusableSettingsFromPolicy {
         try {
             $setting = New-GraphGETRequest -Uri "https://graph.microsoft.com/beta/deviceManagement/reusablePolicySettings/$settingId" -tenantid $Tenant
             if ($null -eq $setting) {
-                Write-LogMessage -headers $Headers -API $APIName -message "Reusable setting $settingId not returned from Graph" -Sev 'Warn'
+                Write-LogMessage -headers $Headers -API $APIName -message "Reusable setting $settingId not returned from Graph" -Sev 'Warning'
                 continue
             }
 
@@ -119,7 +121,7 @@ function Get-CIPPReusableSettingsFromPolicy {
 
             $settingDisplayName = $setting.displayName ?? $settingNormalized.displayName
             if (-not $settingDisplayName) {
-                Write-LogMessage -headers $Headers -API $APIName -message "Reusable setting $settingId missing displayName" -Sev 'Warn'
+                Write-LogMessage -headers $Headers -API $APIName -message "Reusable setting $settingId missing displayName" -Sev 'Warning'
                 continue
             }
 
@@ -196,14 +198,26 @@ function Get-CIPPReusableSettingsFromPolicy {
                 }
             }
 
+            if ($templateGuid) {
+                $result.Map[$settingId] = $templateGuid
+            }
+
             $result.ReusableSettings.Add([pscustomobject]@{
                     displayName = $settingDisplayName
                     templateId  = $templateGuid
                     sourceId    = $settingId
                 })
         } catch {
-            Write-LogMessage -headers $Headers -API $APIName -message "Failed to link reusable setting $settingId for template creation: $($_.Exception.Message)" -Sev 'Warn'
+            Write-LogMessage -headers $Headers -API $APIName -message "Failed to link reusable setting $settingId for template creation: $($_.Exception.Message)" -Sev 'Warning'
         }
+    }
+
+    if ($result.Map.Count -gt 0) {
+        $updatedJson = $PolicyJson
+        foreach ($pair in $result.Map.GetEnumerator()) {
+            $updatedJson = $updatedJson -replace [regex]::Escape($pair.Key), $pair.Value
+        }
+        $result.RawJSON = $updatedJson
     }
 
     Write-LogMessage -headers $Headers -API $APIName -message "Reusable settings mapped: $($result.ReusableSettings.Count) -> $($result.ReusableSettings.displayName -join ', ')" -Sev 'Info'
